@@ -14,3 +14,5 @@ You can add this as an exec option in your hyprland.conf or manually trigger it 
 ```
 exec = HypWorkCut
 ```
+
+I prefer the desktop file method, because if I am working without a mouse, and just using the keyboard laptop, etc. it is cumbersome to use a trackpad to activate workspace switching. Key combos are the way. 

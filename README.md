@@ -10,3 +10,7 @@ You will need to add your own png to be used as the dock icon. It should be call
 QT6 is the only required dependency here. This has been tested on Omarchy. 
 
 You can add this as an exec option in your hyprland.conf or manually trigger it via a desktop file. 
+
+```
+exec = HypWorkCut
+```

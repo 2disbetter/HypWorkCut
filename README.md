@@ -16,3 +16,5 @@ exec = HypWorkCut
 ```
 
 I prefer the desktop file method, because if I am working without a mouse, and just using the keyboard laptop, etc. it is cumbersome to use a trackpad to activate workspace switching. Key combos are the way. 
+
+Known limitation: this only works when scaling is set to 1. I am working to make it so that the scaling is auto detected and the corner target size set accordingly. 

@@ -1,4 +1,4 @@
-//HypWorkCut - Matthew Mueller
+// HypWorkCut - Matthew Mueller
 
 #include <QApplication>
 #include <QTimer>
@@ -108,16 +108,29 @@ int main(int argc, char *argv[])
 
     trayIcon.setContextMenu(&trayMenu);
     trayIcon.show();
-    // --------------------------------------------------------------
 
-    const int cornerSize = 10;
+    // === GET SCALE AND MONITOR DIMENSIONS ONLY ONCE AT STARTUP ===
+    double scale = 1.0;
+    int mon_x = 0, mon_y = 0, mon_width = 0, mon_height = 0;
+    QProcess monProc;
+    monProc.start("hyprctl", {"monitors", "-j"});
+    monProc.waitForFinished();
+    QJsonArray monArr = QJsonDocument::fromJson(monProc.readAllStandardOutput()).array();
+    if (!monArr.isEmpty()) {
+        QJsonObject mo = monArr.first().toObject();  // safe for single monitor
+        scale = mo["scale"].toDouble(1.0);
+        mon_x = mo["x"].toInt();
+        mon_y = mo["y"].toInt();
+        mon_width = qRound(mo["width"].toInt() / scale);
+        mon_height = qRound(mo["height"].toInt() / scale);
+    }
+
+    const int cornerSize = qRound(50 / scale);
     const int activationDelayMs = 120;
     const int checkIntervalMs = 66;
 
     qint64 cornerEntryTime = 0;
     bool trackingCorner = false;
-
-    static int last_mon_x = 0, last_mon_y = 0, last_mon_width = 0, last_mon_height = 0;
 
     QTimer timer;
     timer.start(checkIntervalMs);
@@ -131,30 +144,6 @@ int main(int argc, char *argv[])
         int cx = doc.object()["x"].toInt(-99999);
         int cy = doc.object()["y"].toInt(-99999);
         if (cx < 0 || cy < 0) return;
-
-        bool need_monitor_update = (last_mon_width == 0) ||
-            (std::abs(cx - (last_mon_x + last_mon_width / 2)) > last_mon_width / 2 ||
-             std::abs(cy - (last_mon_y + last_mon_height / 2)) > last_mon_height / 2);
-
-        int mon_x = last_mon_x, mon_y = last_mon_y, mon_width = last_mon_width, mon_height = last_mon_height;
-
-        if (need_monitor_update) {
-            QProcess monProc;
-            monProc.start("hyprctl", QStringList() << "monitors" << "-j");
-            monProc.waitForFinished(200);
-            QJsonArray monArr = QJsonDocument::fromJson(monProc.readAllStandardOutput()).array();
-            for (const auto &v : monArr) {
-                QJsonObject m = v.toObject();
-                int mx = m["x"].toInt(), my = m["y"].toInt(), mw = m["width"].toInt(), mh = m["height"].toInt();
-                if (cx >= mx && cx < mx + mw && cy >= my && cy < my + mh) {
-                    mon_x = mx; mon_y = my; mon_width = mw; mon_height = mh;
-                    last_mon_x = mon_x; last_mon_y = mon_y; last_mon_width = mon_width; last_mon_height = mon_height;
-                    break;
-                }
-            }
-        }
-
-        if (mon_width == 0) return;
 
         int localX = cx - mon_x;
         int localY = cy - mon_y;
@@ -206,4 +195,4 @@ int main(int argc, char *argv[])
     return app.exec();
 }
 
-#include "main.moc"
+#include "hypworkcut.moc"

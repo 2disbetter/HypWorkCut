@@ -16,7 +16,99 @@
 #include <QMenu>
 #include <QIcon>
 #include <QDateTime>
+#include <QDialog>
+#include <QFormLayout>
+#include <QVBoxLayout>
+#include <QLabel>
+#include <QSpinBox>
+#include <QDialogButtonBox>
+#include <QSettings>
 #include <cmath>
+
+// =================== SETTINGS ===================
+// Centralized defaults and persistence so the GUI, storage, and runtime agree.
+struct AppSettings {
+    int cornerSize;      // trigger range: size (px) of the bottom-left hot corner
+    int dismissMargin;   // distance (px) the cursor may stray from the popup before it hides
+};
+
+static constexpr int kDefaultCornerSize    = 50;   // pre-scale value (matches original 50/scale)
+static constexpr int kDefaultDismissMargin = 800;  // matches original adjusted(-800,...,800,800)
+
+static AppSettings loadSettings() {
+    QSettings s("HypWorkCut", "HypWorkCut");
+    AppSettings cfg;
+    cfg.cornerSize    = s.value("cornerSize", kDefaultCornerSize).toInt();
+    cfg.dismissMargin = s.value("dismissMargin", kDefaultDismissMargin).toInt();
+    return cfg;
+}
+
+static void saveSettings(const AppSettings &cfg) {
+    QSettings s("HypWorkCut", "HypWorkCut");
+    s.setValue("cornerSize", cfg.cornerSize);
+    s.setValue("dismissMargin", cfg.dismissMargin);
+    s.sync();
+}
+
+// =================== SETTINGS DIALOG ===================
+class SettingsDialog : public QDialog {
+    Q_OBJECT
+public:
+    explicit SettingsDialog(const AppSettings &current, QWidget *parent = nullptr)
+        : QDialog(parent) {
+        setWindowTitle("HypWorkCut Settings");
+
+        auto *form = new QFormLayout;
+
+        cornerSpin = new QSpinBox(this);
+        cornerSpin->setRange(1, 1000);
+        cornerSpin->setSuffix(" px");
+        cornerSpin->setValue(current.cornerSize);
+        cornerSpin->setToolTip("How large the bottom-left hot corner is.\n"
+                               "Larger values make the popup easier to trigger.");
+        form->addRow("Trigger range (hot corner size):", cornerSpin);
+
+        dismissSpin = new QSpinBox(this);
+        dismissSpin->setRange(0, 5000);
+        dismissSpin->setSuffix(" px");
+        dismissSpin->setValue(current.dismissMargin);
+        dismissSpin->setToolTip("How far the cursor may move away from the popup\n"
+                                "before it is automatically dismissed.");
+        form->addRow("Dismiss distance (popup margin):", dismissSpin);
+
+        auto *buttons = new QDialogButtonBox(
+            QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::RestoreDefaults,
+            this);
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+        connect(buttons->button(QDialogButtonBox::RestoreDefaults), &QPushButton::clicked,
+                this, [this]() {
+                    cornerSpin->setValue(kDefaultCornerSize);
+                    dismissSpin->setValue(kDefaultDismissMargin);
+                });
+
+        auto *root = new QVBoxLayout(this);
+        auto *hint = new QLabel(
+            "Trigger range controls how large the activation corner is.\n"
+            "Dismiss distance controls how far you can move before the popup closes.", this);
+        hint->setWordWrap(true);
+        root->addWidget(hint);
+        root->addLayout(form);
+        root->addWidget(buttons);
+        setLayout(root);
+    }
+
+    AppSettings values() const {
+        AppSettings cfg;
+        cfg.cornerSize    = cornerSpin->value();
+        cfg.dismissMargin = dismissSpin->value();
+        return cfg;
+    }
+
+private:
+    QSpinBox *cornerSpin;
+    QSpinBox *dismissSpin;
+};
 
 class WorkspaceSelector : public QWidget {
     Q_OBJECT
@@ -74,14 +166,18 @@ int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
     app.setApplicationName("HypWorkCut");
+    app.setOrganizationName("HypWorkCut");
     app.setQuitOnLastWindowClosed(false);  // Essential for tray-only apps
 
     WorkspaceSelector selector;
     selector.hide();
 
+    // Load persisted settings (trigger range + dismiss distance).
+    AppSettings cfg = loadSettings();
+
     // ====================== SYSTEM TRAY ICON ======================
     QSystemTrayIcon trayIcon(QIcon(QApplication::applicationDirPath() + "/HypWorkCut.png"), &app);
-    trayIcon.setToolTip("HypWorkCut – Workspace Hot Corner");
+    trayIcon.setToolTip("HypWorkCut - Workspace Hot Corner");
 
     QMenu trayMenu;
     trayMenu.addAction("Show Workspace Selector", [&selector]() {
@@ -103,6 +199,18 @@ int main(int argc, char *argv[])
         }
         selector.show(); selector.raise();
     });
+
+    trayMenu.addSeparator();
+
+    // ---- Settings entry: opens the GUI to edit trigger range & dismiss distance ----
+    trayMenu.addAction("Settings...", [&cfg]() {
+        SettingsDialog dlg(cfg);
+        if (dlg.exec() == QDialog::Accepted) {
+            cfg = dlg.values();   // live update - picked up by the timer immediately
+            saveSettings(cfg);    // persist across restarts
+        }
+    });
+
     trayMenu.addSeparator();
     trayMenu.addAction("Quit HypWorkCut", [&app]() { app.quit(); });
 
@@ -125,7 +233,6 @@ int main(int argc, char *argv[])
         mon_height = qRound(mo["height"].toInt() / scale);
     }
 
-    const int cornerSize = qRound(50 / scale);
     const int activationDelayMs = 120;
     const int checkIntervalMs = 66;
 
@@ -136,6 +243,11 @@ int main(int argc, char *argv[])
     timer.start(checkIntervalMs);
 
     QObject::connect(&timer, &QTimer::timeout, [&]() {
+        // Read live, scale-adjusted values from settings every tick so changes
+        // made in the GUI take effect without restarting the app.
+        const int cornerSize    = qRound(cfg.cornerSize / scale);
+        const int dismissMargin = cfg.dismissMargin;
+
         QProcess cursorProc;
         cursorProc.start("hyprctl", QStringList() << "cursorpos" << "-j");
         cursorProc.waitForFinished(100);
@@ -156,7 +268,10 @@ int main(int argc, char *argv[])
             }
         } else trackingCorner = false;
 
-        bool inPopup = selector.isVisible() && selector.geometry().adjusted(-800,-800,800,800).contains(QPoint(cx,cy));
+        bool inPopup = selector.isVisible() &&
+            selector.geometry()
+                .adjusted(-dismissMargin, -dismissMargin, dismissMargin, dismissMargin)
+                .contains(QPoint(cx, cy));
 
         if (selector.isVisible() && !inZone && !inPopup) selector.hide();
 
@@ -167,7 +282,7 @@ int main(int argc, char *argv[])
             QProcess p;
             p.start("hyprctl", QStringList() << "activeworkspace" << "-j");
             p.waitForFinished(200);
-            QByteArray activeOutput = p.readAllStandardOutput();  // ← read once
+            QByteArray activeOutput = p.readAllStandardOutput();  // <- read once
             QJsonObject activeObj = QJsonDocument::fromJson(activeOutput).object();
             int currentWs = activeObj.isEmpty() ? 1 : activeObj["id"].toInt(1);
 

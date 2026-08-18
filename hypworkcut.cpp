@@ -143,7 +143,7 @@ public:
                 btn->setStyleSheet("QPushButton { background-color: #333355; color: #8888bb; border-radius: 20px; } QPushButton:hover { background-color: #555588; }");
 
             connect(btn, &QPushButton::clicked, this, [this, i]() {
-                QProcess::startDetached("hyprctl", {"dispatch", "workspace", QString::number(i)});
+                QProcess::startDetached("hyprctl", {"dispatch", QString("hl.dsp.focus({ workspace = \"%1\" })").arg(QString::number(i))});
                 hide();
             });
 

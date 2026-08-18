@@ -43,3 +43,15 @@ windowrule {
   match:class = ^(HypWorkCut)$
 }
 ```
+
+Hyprland with Lua config: 
+```
+hl.window_rule({
+  match = { class = "HypWorkCut", title = "Hyprland Workspace Selector" },
+  float       = true,
+  pin         = true,
+  border_size = 0,
+  rounding    = 20,
+  move        = {40, "monitor_h - window_h - 40"},  -- 40px from left, 40px from bottom
+})
+```
